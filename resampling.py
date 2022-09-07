@@ -15,20 +15,11 @@ class Resampling:
         self.df_ob = pd.DataFrame(columns=['time','cancel','bs','price','vol','delegate_id'])
         self.df_filled_orders = pd.DataFrame(columns=['price','vol','bs'])
         
-        # self.is_call_action = True
-        
-    # def call_action(self):
-    #     print("call_action open_price")
-    #     self.is_call_action = False
-        
     def place_order(self,order):
-        # if self.is_call_action and order.time >= 93000000: #集合竞价阶段
-        #     self.call_action()
-        # if order.time >= 93000000:
-        #     return
         snap_time = int(order.lifetime / self.interval) * self.interval
         if order.filled:
             self.filled_order(order)
+            pass
         else:
             self.limit_order(order)
         if snap_time != self.last_time:
@@ -36,25 +27,35 @@ class Resampling:
             self.snap(snap_time,order.time)
             
     def limit_order(self,order):
+        
         if order.cancel == 'D':
-            self.df_ob.loc[self.df_ob['delegate_id']==order.delegate_id,['vol']] -= order.vol
+            try:
+                self.df_ob.at[order.delegate_id,'vol'] -= order.vol
+            except:
+                print('delegate id not found:',order.delegate_id)
+            
         else:
-            df_row = self.df_ob.shape[0]
-            self.df_ob.loc[df_row] = order
+            self.df_ob = pd.concat([self.df_ob,pd.DataFrame(order).T])
+            self.df_ob.index = self.df_ob['delegate_id']
     
     
     def filled_order(self,order):
         vol = order.vol
         bid_id = order.bid_id
         ask_id = order.ask_id
-        self.df_ob.loc[self.df_ob['delegate_id']==bid_id,['vol']] -= vol
-        self.df_ob.loc[self.df_ob['delegate_id']==ask_id,['vol']] -= vol
-        self.df_filled_orders.loc[len(self.df_filled_orders)] =  order
+        try:
+            self.df_ob.at[bid_id,'vol'] -= vol
+        except:
+            print("bid id not found",bid_id)
+        try:
+            self.df_ob.at[ask_id,'vol'] -= vol
+        except:
+            print('ask id not found',ask_id)
+        self.df_filled_orders = pd.concat([self.df_filled_orders,pd.DataFrame(order).T])
         
     
     def get_ob(self):
         self.df_ob.drop(self.df_ob[self.df_ob.vol == 0].index,inplace=True)
-        # df_ob = self.df_ob[['price','vol','bs']].groupby('price').agg({'vol':'sum',})
         df_ob = self.df_ob
         df_bids = df_ob.loc[df_ob['bs'] == 'B'][['price','vol']].groupby('price').agg({'vol':'sum',}).reset_index(level=0)
         df_asks = df_ob.loc[df_ob['bs'] == 'S'][['price','vol']].groupby('price').agg({'vol':'sum',}).reset_index(level=0)
@@ -86,7 +87,6 @@ class Resampling:
         buy_price = buy_price if buy_price > 0 else asks[0][0]
         sell_price = sell_price if sell_price > 0 else bids[0][0]
         # print(time,bids[:5].flatten(),asks[:5].flatten(),buy_price,buy_vol,sell_price,sell_vol)
-        # print(time)
         self.df_filled_orders.drop(self.df_filled_orders.index, inplace=True)
         
     
@@ -98,7 +98,6 @@ class Resampling:
         print("Resampling...",order_path)
         df_order = pd.read_csv(order_path,encoding="gb2312")
         df_orderbook = pd.read_csv(orderbook_path,encoding="gb2312")
-        print("load dataframes...",df_orderbook.shape)
         df_order = df_order[['时间','BS标志','成交价格','成交数量','叫卖序号','叫买序号']]
         df_orderbook = df_orderbook[['时间','委托类型','委托代码','委托价格','委托数量','交易所委托号']]
         df_order.columns = ['time','bs','price','vol','bid_id','ask_id']
@@ -113,27 +112,17 @@ class Resampling:
         order_book_all = pd.concat([df_order, df_orderbook],axis=0)
         order_book_all.sort_values(by=['lifetime','filled'], inplace=True)
         order_book_all = order_book_all.reset_index(drop=True)
-        order_book_all.apply(self.place_order,axis=1)
+        
+        print("order_book_all shape:",order_book_all.shape)
+        order_book_all.iloc[:2000,:].apply(self.place_order,axis=1)
+        
         end = time.time()
         print("总共用时{}秒".format((end - start)))
-        
-        
-        
-        
-            
-        
-        
-            
-            
-            
-        
-        
-        
         
 
 def main():
     file_path = r"D:\workspace\stock-strategy\knife\data preprocessing\data\20220701\110038.SZ"
-    r = Resampling(file_path,500)
+    r = Resampling(file_path,1000)
     r.resampling()
     
 
